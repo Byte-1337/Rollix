@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: gambling-site
+    env: python
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "gunicorn app:app"
+    autoDeploy: true
+    envVars:
+      - key: FLASK_SECRET_KEY
+        value: your_secret_key_here
+      - key: PORT
+        value: 10000
