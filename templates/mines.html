@@ -1,0 +1,202 @@
+{% extends 'base.html' %}
+{% block content %}
+<h2>Mines Game (Balance: $<span id="balance-display">{{ balance }}</span>)</h2>
+
+<label for="bet">Bet amount:</label>
+<input type="number" id="bet" min="1" value="10" style="width: 80px;">
+
+<label for="mines-count">Number of mines:</label>
+<select id="mines-count">
+  {% for i in range(1, 25) %}
+  <option value="{{ i }}">{{ i }}</option>
+  {% endfor %}
+</select>
+
+<button id="start-btn">Start Game</button>
+<button id="cashout-btn" disabled>Cashout</button>
+<button onclick="location.href='/reset'">Reset Balance</button>
+
+<p id="message"></p>
+<p>Potential Winnings: $<span id="potential-winnings">0</span></p>
+
+<div id="mines-grid" style="margin-top: 20px;"></div>
+
+<canvas id="profit-chart" width="400" height="200"></canvas>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="/static/mines.js"></script>
+<script src="/static/chart.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  const balanceDisplay = document.getElementById('balance-display');
+  let balance = parseInt(balanceDisplay.textContent);
+
+  const grid = document.getElementById('mines-grid');
+  const startBtn = document.getElementById('start-btn');
+  const cashoutBtn = document.getElementById('cashout-btn');
+  const betInput = document.getElementById('bet');
+  const minesCountSelect = document.getElementById('mines-count');
+  const messageEl = document.getElementById('message');
+  const potentialWinningsEl = document.getElementById('potential-winnings');
+
+  let size = 5;  // 5x5 grid
+  let totalCells = size * size;
+  let mines = new Set();
+  let revealed = 0;
+  let bet = 0;
+  let mineCount = 0;
+  let gameOver = true;
+  let potentialWinnings = 0;
+
+  function updateGameInfo() {
+    potentialWinningsEl.textContent = potentialWinnings.toFixed(2);
+  }
+
+  function resetGame() {
+    gameOver = true;
+    mines.clear();
+    revealed = 0;
+    potentialWinnings = 0;
+    potentialWinningsEl.textContent = '0';
+    messageEl.textContent = '';
+    cashoutBtn.disabled = true;
+    grid.innerHTML = '';
+  }
+
+  function calculateMultiplier(minesCount, revealedCount) {
+    // Simple multiplier formula:
+    // The more mines, the higher multiplier per safe cell
+    // Less mines = lower multiplier, more mines = higher multiplier
+    // Example formula: multiplier = (totalCells / (totalCells - minesCount)) ^ revealedCount
+
+    let baseMultiplier = totalCells / (totalCells - minesCount);
+    return Math.pow(baseMultiplier, revealedCount);
+  }
+
+  function updateBalanceOnServer(result, amount, callback) {
+    fetch('/mines_result', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ result: result, amount: amount })
+    })
+    .then(res => res.json())
+    .then(data => {
+      if (data.error) {
+        alert('Error: ' + data.error);
+      } else {
+        balance = data.balance;
+        balanceDisplay.textContent = balance;
+        callback(data.balance);
+      }
+    })
+    .catch(() => alert('Server error updating balance.'));
+  }
+
+  function startGame() {
+    bet = parseInt(betInput.value);
+    mineCount = parseInt(minesCountSelect.value);
+
+    if (isNaN(bet) || bet <= 0) {
+      alert('Please enter a valid bet amount.');
+      return;
+    }
+    if (bet > balance) {
+      alert('Insufficient balance!');
+      return;
+    }
+    if (mineCount < 1 || mineCount > 24) {
+      alert('Please select mines between 1 and 24.');
+      return;
+    }
+
+    gameOver = false;
+    mines.clear();
+    revealed = 0;
+    potentialWinnings = bet;
+    messageEl.textContent = '';
+    potentialWinningsEl.textContent = potentialWinnings.toFixed(2);
+    cashoutBtn.disabled = false;
+    grid.innerHTML = '';
+
+    // Generate mines randomly
+    while (mines.size < mineCount) {
+      mines.add(Math.floor(Math.random() * totalCells));
+    }
+
+    // Create grid cells
+    for (let i = 0; i < totalCells; i++) {
+      const cell = document.createElement('div');
+      cell.classList.add('box');
+      cell.dataset.index = i;
+      cell.textContent = '';
+      cell.style.userSelect = 'none';
+      cell.onclick = () => {
+        if (gameOver) return;
+        if (cell.classList.contains('safe') || cell.classList.contains('mine')) return;
+
+        if (mines.has(i)) {
+          cell.classList.add('mine');
+          cell.textContent = '💣';
+          gameOver = true;
+          potentialWinnings = 0;
+          potentialWinningsEl.textContent = '0';
+          cashoutBtn.disabled = true;
+          updateGameInfo();
+
+          // Deduct bet from balance
+          updateBalanceOnServer('lose', bet, (newBalance) => {
+            alert('💥 Boom! You hit a mine and lost your bet. Your new balance: $' + newBalance);
+            resetGame();
+          });
+          messageEl.textContent = 'Game Over! You hit a mine.';
+        } else {
+          cell.classList.add('safe');
+          revealed++;
+          // Update potential winnings with multiplier
+          let multiplier = calculateMultiplier(mineCount, revealed);
+          potentialWinnings = bet * multiplier;
+          potentialWinningsEl.textContent = potentialWinnings.toFixed(2);
+          updateGameInfo();
+
+          if (revealed === totalCells - mineCount) {
+            // Player cleared all safe spots, wins max
+            gameOver = true;
+            cashoutBtn.disabled = true;
+            updateBalanceOnServer('win', Math.floor(potentialWinnings), (newBalance) => {
+              alert('🎉 You won the game! Your new balance: $' + newBalance);
+              resetGame();
+            });
+            messageEl.textContent = 'Congratulations! You cleared all safe spots!';
+          }
+        }
+      };
+      grid.appendChild(cell);
+    }
+  }
+
+  function cashoutWinnings() {
+    if (gameOver) return;
+    if (potentialWinnings > 0) {
+      gameOver = true;
+      cashoutBtn.disabled = true;
+      updateBalanceOnServer('win', Math.floor(potentialWinnings), (newBalance) => {
+        alert(`💰 You cashed out $${Math.floor(potentialWinnings)}! Your new balance: $${newBalance}`);
+        resetGame();
+      });
+      messageEl.textContent = 'You cashed out!';
+    }
+  }
+
+  startBtn.addEventListener('click', () => {
+    resetGame();
+    startGame();
+  });
+
+  cashoutBtn.addEventListener('click', () => {
+    cashoutWinnings();
+  });
+
+  resetGame();
+});
+</script>
+
+{% endblock %}

@@ -1,0 +1,24 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Gambling Site</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/animejs@3.2.1/lib/anime.min.js"></script>
+</head>
+<body>
+    <header>
+        <h1 class="animate-title">🎰 Gambling Site</h1>
+       
+<nav>
+    <a href="/">Home</a> |
+    <a href="/mines">Mines</a> |
+    <a href="/deposit">Deposit</a> |
+    <a href="/logout">Logout</a>
+  </nav>
+    </header>
+    <main>
+        {% block content %}{% endblock %}
+    </main>
+</body>
+</html>
